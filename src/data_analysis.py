@@ -37,6 +37,7 @@ def missing_values(df: pd.DataFrame) -> pd.DataFrame:
 def column_information(df: pd.DataFrame) -> pd.DataFrame:
     info = missing_values(df)
     info.insert(0, "dtype", df.dtypes.astype(str))
+    info.index = info.index.copy()
     info.index.name = "Kolumna"
     return info
 

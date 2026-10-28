@@ -281,14 +281,17 @@ def _pca(state: dict) -> None:
     st.caption("Każdy wiersz odpowiada obserwacji z wybranej kopii; zachowano jej indeks. To projekcja danych, bez automatycznej oceny jakości klas lub predykcji.")
 
 
-def render_advanced_analysis(df: pd.DataFrame, source_name: str) -> None:
+def render_advanced_analysis(df: pd.DataFrame, source_name: str, *, enable_regression: bool = True) -> None:
     state = _workspace(df, source_name)
     st.subheader("Zaawansowana analiza danych")
     cleaning, regression, kmeans, pca = st.tabs(["Czyszczenie danych", "Regresja liniowa", "K-Means", "PCA"])
     with cleaning:
         _cleaning(state)
     with regression:
-        _regression(state)
+        if enable_regression:
+            _regression(state)
+        else:
+            st.info("Dla Bike Sharing przejdź do zakładki Badanie Bike Sharing → Regresja chronologiczna. Losowy podział i użycie casual/registered zawyżyłyby ocenę przewidywania cnt.")
     with kmeans:
         _kmeans(state)
     with pca:

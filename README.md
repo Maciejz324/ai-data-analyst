@@ -58,6 +58,70 @@ własnego pliku; przykład ma stały format UTF-8 z przecinkiem i kropką dziesi
   (20 rekordów, 6 kolumn, 4 brakujące wartości).
 - Sekcja **Zaawansowana analiza danych**: czyszczenie danych, regresja liniowa,
   klasteryzacja K-Means i PCA, bez integracji LLM ani kodu R.
+- Źródło **Bike Sharing (UCI)** i osobne badanie z chronologiczną regresją,
+  porównaniem K-Means oraz PCA, opisane poniżej. Przykład studentów pozostaje dostępny.
+
+## Badanie Bike Sharing (UCI)
+
+Przygotowano powtarzalny eksperyment dla oficjalnego godzinowego `hour.csv`:
+
+```bash
+python -m experiments.bike_sharing.run --download
+```
+
+Komenda pobiera wyłącznie oficjalne archiwum UCI, zachowuje oryginalny CSV,
+dokumentację i manifest SHA-256. Następnie oblicza EDA, baseline, regresję,
+K-Means dla k=2…6 oraz PCA i zapisuje raport, CSV, metadane i wykresy Plotly.
+Licencja zbioru: **CC BY 4.0**, Fanaee-T, H. (2013), UCI, DOI 10.24432/C5W894.
+
+**Badanie wykonano na oryginalnym zbiorze UCI:** 17 379 wierszy, 17 kolumn,
+zero pustych pól. CSV jest bajtowo identyczny z członkiem `hour.csv` oficjalnego
+ZIP-a; SHA-256 zapisano w manifeście. W osi czasu brakuje 165 godzin — nie
+dopisano dla nich zerowego popytu. Wcześniejsza blokada sieci została usunięta.
+
+Chronologiczny test obejmuje 3476 godzin od 2012-08-07 12:00 do końca 2012 roku.
+Baseline: MAE 174,98, RMSE 232,61, R² −0,113. Regresja: MAE **98,87**,
+RMSE **134,00**, R² **0,631**. Dla K-Means najwyższe silhouette wśród k=2…6
+uzyskało k=3: **0,2864** w trzech cechach pogodowych oraz **0,3753** w dwóch PC.
+PCA zachowuje **76,81% wariancji**. ARI podziałów przy k=3 wynosi **0,8649**;
+silhouette etykiet PCA ocenione w pierwotnej geometrii wynosi **0,2830**.
+Wyższe silhouette w przestrzeni PCA nie oznacza więc poprawy separacji w 3D.
+
+Najważniejsze decyzje metodologiczne:
+
+- Regresja przewiduje `cnt`, sortuje po `dteday+hr` i używa ostatnich 20% rekordów
+  jako testu. Mediana, skaler i one-hot są dopasowane wyłącznie na treningu.
+- `cnt`, `casual`, `registered` i `instant` nie są predyktorami.
+  `casual + registered = cnt`, więc użycie składników ujawniałoby cel.
+- Baseline to średnia cnt z treningu. MAE, RMSE, R² i analiza błędów dotyczą
+  tego samego testu. To ocena ex post z zaobserwowaną pogodą, nie prognoza pogody.
+- Grupowanie korzysta z `temp`, `hum`, `windspeed`, bez celu i jego składników.
+  Porównuje k=2…6 z jawnymi parametrami, wspólną deterministyczną próbą silhouette
+  i wyborem najlepszego k wśród kandydatów, bez zakładania k=3.
+- PCA używa tych samych standaryzowanych cech. K-Means jest porównywany przed
+  i po redukcji do PC1/PC2, bez ponownego skalowania składowych. Metryki odległości
+  w różnych przestrzeniach nie dowodzą bezpośrednio przewagi jednego wyniku;
+  dodatkowo zapisujemy ARI i silhouette etykiet PCA w pierwotnej geometrii.
+- EDA oblicza rzeczywiste braki, statystyki, korelacje i IQR; braków nie zakładamy,
+  odstających automatycznie nie usuwamy, korelacji nie uznajemy za przyczynowość.
+
+W Streamlit wybierz **Bike Sharing (UCI)**, a następnie **Badanie Bike Sharing →
+Uruchom pełne badanie Bike Sharing**. Brakujący oryginał można pobrać przyciskiem
+z UCI; błędy dostępu są prezentowane bez podmiany danych. Dla tego źródła ogólna
+regresja z losowym podziałem kieruje do badania chronologicznego. Pozostałe
+funkcje eksploracji i przykład studentów są zachowane.
+
+Szczegóły: [instrukcja eksperymentu](experiments/bike_sharing/README.md),
+[metodologia](experiments/bike_sharing/METHODOLOGY.md),
+[raport i status](experiments/bike_sharing/REPORT.md),
+[słownik i pochodzenie](data/bike_sharing/SOURCE.md).
+Po poprawnym uruchomieniu artefakty znajdą się w `experiments/bike_sharing/results/`.
+W Git wersjonujemy oryginalny CSV, raport, 26 tabel CSV i 24 wykresy HTML.
+Duplikaty JSON, źródłowy ZIP i duże tabele wyników pojedynczych obserwacji są
+lokalnymi plikami regenerowanymi przez tę samą komendę. Metadane rozróżniają
+pełny manifest wyników od zestawu wersjonowanego; szczegóły opisuje instrukcja eksperymentu.
+Nie wymagamy nowych usług, R ani kluczy API. HTML wykresów korzysta z CDN Plotly;
+JSON figur może być odczytany przez lokalną bibliotekę.
 
 ## Zaawansowana analiza danych
 
@@ -319,6 +383,9 @@ ai-data-analyst/
 │   ├── data_preparation.py
 │   ├── ml_models.py
 │   ├── dimensionality_reduction.py
+│   ├── bike_sharing_data.py
+│   ├── bike_sharing_study.py
+│   ├── bike_sharing_ui.py
 │   ├── advanced_ui.py
 │   └── visualizations.py
 ├── tests/
@@ -331,13 +398,31 @@ ai-data-analyst/
 │   ├── test_dimensionality_reduction.py
 │   ├── test_pca_visualizations.py
 │   ├── test_pca_app.py
+│   ├── test_bike_sharing_data.py
+│   ├── test_bike_sharing_study.py
+│   ├── test_bike_sharing_app.py
+│   ├── conftest.py
 │   └── test_app.py
 ├── prompts/
 │   └── README.md
 ├── data/
-│   └── sample_students.csv
+│   ├── sample_students.csv
+│   └── bike_sharing/
+│       ├── SOURCE.md
+│       ├── hour.csv
+│       ├── Readme_UCI.txt
+│       └── manifest.json
+├── experiments/
+│   └── bike_sharing/
+│       ├── run.py
+│       ├── artifacts.py
+│       ├── config.json
+│       ├── METHODOLOGY.md
+│       ├── REPORT.md
+│       └── README.md
 ├── .streamlit/
 │   └── config.toml
+├── .gitattributes
 ├── .gitignore
 ├── pytest.ini
 ├── requirements.txt
@@ -363,6 +448,17 @@ kodowania, braki, błędne pliki, limit rozmiaru, statystyki na znanych danych,
 korelacje, przypadki niewyznaczalne, dane tekstowe, obiekty i wartości wykresów
 oraz działanie przykładu i przełączanie wykresów w Streamlit AppTest.
 AppTest sprawdza logikę interfejsu; nie zastępuje oceny wyglądu w przeglądarce.
+
+Badanie Bike Sharing zostało wykonane na oficjalnym hour.csv i zapisane w
+`experiments/bike_sharing/results/`. Pełny test rzeczywistego zbioru jest
+wykonywany; nie jest już pomijany z powodu wcześniejszej blokady sieciowej.
+Testy obejmują także powtórzenie pełnego badania w Streamlit i porównanie
+metryk aplikacji z zapisanymi wynikami. Szczegóły aktualnej weryfikacji
+znajdują się w instrukcji eksperymentu.
+Aktualny wynik pełnego zestawu: **288 passed**, zero pominięć i błędów
+(`python -m pytest -q -W error`). Dwa uruchomienia rzeczywistego eksperymentu
+dały identyczne metadane i SHA-256 wszystkich 77 artefaktów. Serwer Streamlit
+zwrócił HTTP 200 i `ok` kontroli zdrowia; `pip check` nie wykazał konfliktów.
 
 Testy rozszerzenia sprawdzają również: niezmienność oryginału, imputację,
 usuwanie wierszy, IQR, oba skalowania, znane współczynniki i metryki regresji,

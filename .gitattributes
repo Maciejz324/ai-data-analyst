@@ -1,0 +1,3 @@
+# Oryginały UCI: zachowaj dokładne bajty, w tym CRLF i odstępy z archiwum.
+/data/bike_sharing/hour.csv -text -whitespace
+/data/bike_sharing/Readme_UCI.txt -text -whitespace

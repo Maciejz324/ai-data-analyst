@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Bike Sharing: zachowaj lokalne artefakty, które odtwarza skrypt badania.
+/data/bike_sharing/source_archive.zip
+/experiments/bike_sharing/results/figures/*.json
+/experiments/bike_sharing/results/tables/pca_scores.csv
+/experiments/bike_sharing/results/tables/cluster_labels_original.csv
+/experiments/bike_sharing/results/tables/cluster_labels_pca.csv
