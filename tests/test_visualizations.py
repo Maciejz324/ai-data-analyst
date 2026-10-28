@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import pytest
 
 from src.visualizations import VisualizationError, bar_chart, correlation_matrix, histogram, scatter_plot
+from src.visualizations import cluster_plot, regression_prediction_plot
 
 
 @pytest.fixture
@@ -59,3 +60,34 @@ def test_empty_infinite_and_disjoint_data():
 def test_bar_category_limit():
     with pytest.raises(VisualizationError, match="50"):
         bar_chart(pd.DataFrame({"category": range(51)}), "category")
+
+
+def test_regression_chart_points_and_identity_line():
+    data = pd.DataFrame({"actual": [1, 3, 5], "predicted": [2, 3, 4]})
+    fig = regression_prediction_plot(data)
+    assert list(fig.data[0].x) == [1, 3, 5]
+    assert list(fig.data[0].y) == [2, 3, 4]
+    assert list(fig.data[1].x) == list(fig.data[1].y) == [1, 5]
+    assert fig.to_json()
+
+
+def test_cluster_projection_one_feature_and_column_name_collisions():
+    data = pd.DataFrame({"cluster": [1, 2, 8, 9], "x": [2, 3, 7, 8]}, index=[5] * 4)
+    labels = pd.Series([0, 0, 1, 1], index=data.index)
+    fig = cluster_plot(data, labels, "cluster", "x")
+    assert list(fig.data[0].x) == [1, 2]
+    assert list(fig.data[1].y) == [7, 8]
+    one_dimensional = cluster_plot(data, labels, "cluster")
+    assert list(one_dimensional.data[0].y) == [0, 1]
+    assert one_dimensional.to_json()
+
+
+@pytest.mark.parametrize("operation", [
+    lambda: regression_prediction_plot(pd.DataFrame()),
+    lambda: regression_prediction_plot(pd.DataFrame({"actual": [1], "predicted": [np.inf]})),
+    lambda: cluster_plot(pd.DataFrame({"x": [1]}), pd.Series([0, 1]), "x"),
+    lambda: cluster_plot(pd.DataFrame({"x": [1]}), pd.Series([0]), "x", "x"),
+])
+def test_invalid_ml_charts(operation):
+    with pytest.raises(VisualizationError):
+        operation()

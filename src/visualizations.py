@@ -76,3 +76,39 @@ def correlation_matrix(df: pd.DataFrame, columns: list[str] | None = None) -> go
         text_auto=".2f", aspect="auto", title="Korelacja Pearsona",
         labels={"color": "Pearson r"},
     )
+
+
+def regression_prediction_plot(predictions: pd.DataFrame) -> go.Figure:
+    """Wartości rzeczywiste i przewidywane wyłącznie dla części testowej."""
+    if not {"actual", "predicted"}.issubset(predictions.columns):
+        raise VisualizationError("Brak wartości rzeczywistych i przewidywanych.")
+    data = predictions[["actual", "predicted"]]
+    if data.empty or not np.isfinite(data.to_numpy(dtype=float)).all():
+        raise VisualizationError("Wykres predykcji wymaga skończonych wyników.")
+    fig = px.scatter(data, x="actual", y="predicted", labels={
+        "actual": "Wartość rzeczywista", "predicted": "Wartość przewidywana",
+    }, title="Regresja — zbiór testowy", render_mode="webgl")
+    lower, upper = float(data.min().min()), float(data.max().max())
+    fig.add_trace(go.Scatter(x=[lower, upper], y=[lower, upper], mode="lines", name="Idealna predykcja"))
+    return fig
+
+
+def cluster_plot(data: pd.DataFrame, labels: pd.Series, x: str, y: str | None = None) -> go.Figure:
+    """Rzut skalowanych cech; dla jednej cechy oś Y to pozycja wiersza."""
+    if y == x:
+        raise VisualizationError("Wybierz dwie różne osie klastrów.")
+    columns = [x] if y is None else [x, y]
+    values = _numeric_columns(data, *columns)[columns]
+    if len(values) != len(labels) or values.empty or not np.isfinite(values.to_numpy(dtype=float)).all():
+        raise VisualizationError("Wykres klastrów wymaga skończonych cech i etykiety dla każdego wiersza.")
+    # Wewnętrzne nazwy nie kolidują z dowolnymi nazwami kolumn użytkownika.
+    plot_data = pd.DataFrame({
+        "x": values[x].to_numpy(),
+        "y": values[y].to_numpy() if y is not None else np.arange(len(values)),
+        "cluster": labels.to_numpy().astype(str),
+    })
+    return px.scatter(plot_data, x="x", y="y", color="cluster", labels={
+        "x": f"{x} (po skalowaniu)",
+        "y": f"{y} (po skalowaniu)" if y is not None else "Pozycja wiersza",
+        "cluster": "Klaster",
+    }, title="Klastery K-Means", render_mode="webgl")

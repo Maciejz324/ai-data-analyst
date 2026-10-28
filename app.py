@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
+from src.advanced_ui import render_advanced_analysis
 from src.data_analysis import column_information, descriptive_statistics, numeric_data, pearson_correlation
 from src.data_loader import DataLoadError, load_csv
 from src.visualizations import VisualizationError, bar_chart, correlation_matrix, histogram, scatter_plot
@@ -68,7 +69,9 @@ cols[3].metric("Brakujące wartości", int(df.isna().sum().sum()))
 sep_name = {",": "przecinek", ";": "średnik", "\t": "tabulator"}[df.attrs["separator"]]
 st.caption(f"Odczyt: {df.attrs['encoding']} · separator: {sep_name}")
 
-preview_tab, stats_tab, charts_tab = st.tabs(["Podgląd i jakość danych", "Statystyki", "Wizualizacje"])
+preview_tab, stats_tab, charts_tab, advanced_tab = st.tabs([
+    "Podgląd i jakość danych", "Statystyki", "Wizualizacje", "Zaawansowana analiza danych",
+])
 with preview_tab:
     st.subheader("Podgląd danych")
     preview_count = st.slider("Liczba wierszy w podglądzie", 5, 100, 20, 5)
@@ -138,6 +141,9 @@ with charts_tab:
             st.plotly_chart(fig, use_container_width=True)
     except VisualizationError as exc:
         st.warning(str(exc))
+
+with advanced_tab:
+    render_advanced_analysis(df, source_name)
 
 if numeric_data(df).shape[1] and np.isinf(df.select_dtypes(include="number")).any().any():
     st.warning("Wykryto wartości nieskończone. Są pomijane w statystykach i wykresach; tabela braków opisuje oryginalne dane.")
