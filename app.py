@@ -20,7 +20,7 @@ def select_sample() -> None:
 st.set_page_config(page_title="AI Data Analyst", page_icon="📊", layout="wide")
 st.title("AI Data Analyst")
 st.write("Poznaj swoje dane: wczytaj CSV, sprawdź statystyki i odkrywaj zależności na wykresach.")
-st.caption("Projekt akademicki · Prompt Engineering · MVP bez integracji LLM")
+st.caption("Projekt akademicki · Techniki Analizy Danych · Bez integracji LLM")
 
 with st.sidebar:
     st.header("Źródło danych")

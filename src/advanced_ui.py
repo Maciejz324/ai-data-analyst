@@ -9,8 +9,12 @@ import streamlit as st
 from src.analysis_validation import AnalysisError, numeric_columns
 from src.data_analysis import column_information
 from src.data_preparation import detect_iqr_outliers, drop_missing_rows, impute_missing, scale_numeric
+from src.dimensionality_reduction import run_pca
 from src.ml_models import train_kmeans, train_linear_regression
-from src.visualizations import cluster_plot, regression_prediction_plot
+from src.visualizations import (
+    cluster_plot, pca_cumulative_variance_plot, pca_scatter_plot, pca_scree_plot,
+    regression_prediction_plot,
+)
 
 SCALING = {"Standaryzacja (z-score)": "standard", "Normalizacja (min–max)": "minmax", "Bez skalowania": "none"}
 IMPUTATION = {"Mediana": "median", "Średnia": "mean"}
@@ -28,9 +32,10 @@ def _workspace(df: pd.DataFrame, source_name: str) -> dict:
                 del st.session_state[key]
         state = {
             "fingerprint": fingerprint, "original": df.copy(deep=True), "working": df.copy(deep=True),
-            "history": [], "iqr": None, "regression": None, "kmeans": None,
+            "history": [], "iqr": None, "regression": None, "kmeans": None, "pca": None,
         }
         st.session_state["adv_workspace"] = state
+    state.setdefault("pca", None)
     return state
 
 
@@ -64,14 +69,14 @@ def _cleaning(state: dict) -> None:
                     transformed = scale_numeric(data, selected, "minmax" if operation == "Normalizuj (min–max)" else "standard")
                 state["working"] = transformed
                 state["history"].append(f"{operation}: {', '.join(selected) if operation != 'Usuń wiersze z brakami' else 'wszystkie kolumny'}")
-                state["iqr"] = state["kmeans"] = None
+                state["iqr"] = state["kmeans"] = state["pca"] = None
                 st.rerun()
         except AnalysisError as exc:
             st.warning(str(exc))
     if reset_col.button("Przywróć oryginalne dane", key="adv_reset"):
         state["working"] = state["original"].copy(deep=True)
         state["history"] = []
-        state["iqr"] = state["kmeans"] = state["regression"] = None
+        state["iqr"] = state["kmeans"] = state["regression"] = state["pca"] = None
         st.rerun()
     current = state["working"]
     st.caption(f"Oryginał: {len(state['original'])} wierszy · Kopia robocza: {len(current)} wierszy · Operacje: {len(state['history'])}")
@@ -207,13 +212,84 @@ def _kmeans(state: dict) -> None:
     st.dataframe(result.labels.rename("Klaster").to_frame(), use_container_width=True)
 
 
+def _pca(state: dict) -> None:
+    st.subheader("Analiza głównych składowych (PCA)")
+    st.info("PCA jest metodą nienadzorowaną: szuka kierunków największej zmienności, bez zmiennej docelowej. Redukcja wymiarów może powodować utratę informacji; skalowanie cech wpływa na wynik.")
+    source = st.selectbox("Dane do PCA", ["Kopia robocza", "Oryginalne dane (kopia)"], key="adv_pca_source")
+    data = state["working"] if source == "Kopia robocza" else state["original"]
+    columns = numeric_columns(data)
+    if len(columns) < 2 or len(data) < 2:
+        state["pca"] = None
+        st.info("PCA wymaga co najmniej dwóch kolumn numerycznych i dwóch obserwacji. Wybierz inne dane lub przywróć oryginał.")
+        return
+    st.caption("Wybierz cechy świadomie. Nie wybieramy ich automatycznie — identyfikatory i numery porządkowe zwykle nie są wartościowymi cechami analitycznymi.")
+    features = st.multiselect("Cechy do PCA", columns, default=[], key="adv_pca_features")
+    limit = min(len(data), len(features))
+    count = int(st.number_input(
+        "Liczba składowych PCA", min_value=1, max_value=max(1, limit),
+        value=min(2, max(1, limit)), step=1, key="adv_pca_count",
+    ))
+    imputation = IMPUTATION[st.selectbox("Uzupełnianie cech w PCA", list(IMPUTATION), key="adv_pca_imputation")]
+    scaling = SCALING[st.selectbox("Skalowanie cech w PCA", list(SCALING)[:2], key="adv_pca_scaling")]
+    st.caption("Imputację i skalowanie dopasowujemy na całej wybranej kopii. Oryginał pozostaje bez zmian. PCA używa deterministycznego pełnego SVD, bez wybielania.")
+    if len(features) < 2:
+        st.info("Wskaż co najmniej dwie cechy numeryczne, aby uruchomić PCA.")
+    else:
+        st.caption(f"Dopuszczalna liczba składowych: 1–{limit} (minimum liczby obserwacji i wybranych cech).")
+    config = (source, tuple(features), count, imputation, scaling)
+    if state["pca"] is not None and config != state["pca"][0]:
+        state["pca"] = None
+        st.info("Parametry PCA zmieniły się. Uruchom analizę ponownie, aby zobaczyć aktualne wyniki.")
+    if st.button("Uruchom PCA", key="adv_train_pca", disabled=len(features) < 2):
+        state["pca"] = None
+        try:
+            with st.spinner("Wyznaczanie głównych składowych…"):
+                result = run_pca(data, features, n_components=count, imputation=imputation, scaling=scaling)
+            state["pca"] = (config, result)
+        except AnalysisError as exc:
+            st.warning(str(exc))
+    if state["pca"] is None:
+        return
+    result = state["pca"][1]
+    if result.constant_features:
+        st.warning(f"Stałe cechy nie wnoszą wariancji: {', '.join(result.constant_features)}. Pozostawiono je w analizie z wagą zależną od wyznaczonej osi.")
+    eigenvalues = result.variance["explained_variance"]
+    if (eigenvalues <= np.finfo(float).eps * max(1, eigenvalues.max())).any():
+        st.info("Niektóre składowe mają zerową lub numerycznie znikomą wariancję; nie wnoszą dodatkowej informacji.")
+    total = float(result.variance["cumulative_explained_variance_ratio"].iloc[-1])
+    st.metric("Wariancja zachowana przez PCA", f"{total:.2%}")
+    st.caption(f"Obserwacje: {len(result.scores)} · Wybrane cechy: {len(features)} · Składowe: {count}. Udziały odnoszą się do całkowitej wariancji wszystkich wybranych cech po przygotowaniu.")
+    summary = result.variance.copy()
+    for column in ["explained_variance_ratio", "cumulative_explained_variance_ratio"]:
+        summary[column] *= 100
+    st.dataframe(summary.rename(columns={
+        "explained_variance": "Wariancja składowej",
+        "explained_variance_ratio": "Wyjaśniona wariancja (%)",
+        "cumulative_explained_variance_ratio": "Skumulowana wariancja (%)",
+    }).rename_axis("Składowa"), use_container_width=True)
+    st.plotly_chart(pca_scree_plot(result.variance), use_container_width=True)
+    st.plotly_chart(pca_cumulative_variance_plot(result.variance), use_container_width=True)
+    if result.scores.shape[1] >= 2:
+        st.plotly_chart(pca_scatter_plot(result.scores), use_container_width=True)
+    else:
+        st.info("Wykres PCA 2D wymaga co najmniej dwóch składowych. Dla jednej składowej dostępne są tabela wyników i wykresy wariancji.")
+    st.write("Współczynniki składowych (wagi cech po imputacji i skalowaniu)")
+    st.dataframe(result.components.rename_axis("Składowa"), use_container_width=True)
+    st.caption("Wiersz to składowa, kolumna to cecha. Wagi definiują kierunek osi w przygotowanej przestrzeni; nie są procentami udziału ani korelacjami. PCA dodatkowo centruje przygotowane cechy. Znak składowej jest umowny — odwrócenie całej osi nie zmienia interpretacji wariancji.")
+    st.write("Dane po transformacji PCA")
+    st.dataframe(result.scores, use_container_width=True)
+    st.caption("Każdy wiersz odpowiada obserwacji z wybranej kopii; zachowano jej indeks. To projekcja danych, bez automatycznej oceny jakości klas lub predykcji.")
+
+
 def render_advanced_analysis(df: pd.DataFrame, source_name: str) -> None:
     state = _workspace(df, source_name)
     st.subheader("Zaawansowana analiza danych")
-    cleaning, regression, kmeans = st.tabs(["Czyszczenie danych", "Regresja liniowa", "K-Means"])
+    cleaning, regression, kmeans, pca = st.tabs(["Czyszczenie danych", "Regresja liniowa", "K-Means", "PCA"])
     with cleaning:
         _cleaning(state)
     with regression:
         _regression(state)
     with kmeans:
         _kmeans(state)
+    with pca:
+        _pca(state)
