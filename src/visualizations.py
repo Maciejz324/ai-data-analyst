@@ -112,3 +112,43 @@ def cluster_plot(data: pd.DataFrame, labels: pd.Series, x: str, y: str | None = 
         "y": f"{y} (po skalowaniu)" if y is not None else "Pozycja wiersza",
         "cluster": "Klaster",
     }, title="Klastery K-Means", render_mode="webgl")
+
+
+def _pca_variance_table(variance: pd.DataFrame) -> pd.DataFrame:
+    columns = ["explained_variance_ratio", "cumulative_explained_variance_ratio"]
+    if variance.empty or not set(columns).issubset(variance.columns):
+        raise VisualizationError("Wykres PCA wymaga udziałów wariancji i wariancji skumulowanej.")
+    try:
+        values = variance[columns].astype(float)
+    except (TypeError, ValueError) as exc:
+        raise VisualizationError("Wariancja PCA musi być liczbowa.") from exc
+    if (not np.isfinite(values.to_numpy()).all() or (values < 0).any().any()
+            or (values > 1 + 1e-12).any().any()
+            or not np.allclose(values[columns[0]].cumsum(), values[columns[1]], atol=1e-12, rtol=1e-12)):
+        raise VisualizationError("Udziały wariancji PCA muszą być skończone, nieujemne i mieć poprawną sumę skumulowaną.")
+    return values
+
+
+def pca_scree_plot(variance: pd.DataFrame) -> go.Figure:
+    values = _pca_variance_table(variance)
+    fig = go.Figure(go.Bar(x=values.index, y=values["explained_variance_ratio"] * 100))
+    fig.update_layout(title="PCA — wariancja wyjaśniona (scree plot)", xaxis_title="Składowa", yaxis_title="Wyjaśniona wariancja (%)")
+    fig.update_yaxes(range=[0, 100])
+    return fig
+
+
+def pca_cumulative_variance_plot(variance: pd.DataFrame) -> go.Figure:
+    values = _pca_variance_table(variance)
+    fig = go.Figure(go.Scatter(x=values.index, y=values["cumulative_explained_variance_ratio"] * 100, mode="lines+markers"))
+    fig.update_layout(title="PCA — skumulowana wariancja wyjaśniona", xaxis_title="Liczba kolejnych składowych", yaxis_title="Skumulowana wariancja (%)")
+    fig.update_yaxes(range=[0, 100])
+    return fig
+
+
+def pca_scatter_plot(scores: pd.DataFrame) -> go.Figure:
+    if not {"PC1", "PC2"}.issubset(scores.columns):
+        raise VisualizationError("Wykres PCA 2D wymaga co najmniej dwóch składowych: PC1 i PC2.")
+    data = _numeric_columns(scores, "PC1", "PC2")[["PC1", "PC2"]]
+    if data.empty or not np.isfinite(data.to_numpy(dtype=float)).all():
+        raise VisualizationError("Wykres PCA 2D wymaga skończonych współrzędnych obserwacji.")
+    return px.scatter(data, x="PC1", y="PC2", title="PCA — obserwacje w przestrzeni PC1 i PC2", render_mode="webgl")

@@ -1,9 +1,10 @@
 # AI Data Analyst
 
-Projekt akademicki na przedmiot **Prompt Engineering**, temat 16:
-**Konwersacyjny asystent analizy danych**. Docelowo użytkownik prześle CSV
-i zada pytania po polsku, a LLM zaproponuje plan analizy oraz objaśni wyniki.
-Obecna wersja to MVP rozszerzone o przygotowanie danych i podstawowe modele ML,
+Projekt akademicki przygotowywany do zaliczenia przedmiotu **Techniki Analizy Danych**.
+Aplikacja służy do eksploracji CSV, przygotowania danych, regresji, klasteryzacji
+i analizy głównych składowych. Docelowy **konwersacyjny asystent analizy danych**
+ma również umożliwiać zadawanie pytań po polsku i objaśnianie wyników przez LLM.
+Obecna wersja zawiera metody analityczne i podstawowe modele ML,
 bez integracji LLM i bez symulowania odpowiedzi AI.
 
 ## Technologie
@@ -55,8 +56,8 @@ własnego pliku; przykład ma stały format UTF-8 z przecinkiem i kropką dziesi
   według kategorii. Użytkownik wybiera typ wykresu i kolumny.
 - Polski interfejs, komunikaty walidacji i syntetyczny przykład studentów
   (20 rekordów, 6 kolumn, 4 brakujące wartości).
-- Sekcja **Zaawansowana analiza danych**: czyszczenie danych, regresja liniowa
-  i klasteryzacja K-Means, bez integracji LLM ani kodu R.
+- Sekcja **Zaawansowana analiza danych**: czyszczenie danych, regresja liniowa,
+  klasteryzacja K-Means i PCA, bez integracji LLM ani kodu R.
 
 ## Zaawansowana analiza danych
 
@@ -147,6 +148,112 @@ Ten sam seed nie zapewnia identycznej inicjalizacji w różnych bibliotekach ani
 identycznych etykiet; należy porównywać podziały z uwzględnieniem permutacji etykiet
 (np. ARI) i wartości funkcji celu. W tej wersji nie ma implementacji R.
 
+### PCA — analiza głównych składowych
+
+PCA (**Principal Component Analysis**) to nienadzorowana metoda liniowego
+rzutowania cech na ortogonalne osie największej wariancji. **PC1** wyjaśnia
+największą część zmienności danych po przygotowaniu; **PC2** wyjaśnia największą
+część pozostałej zmienności w kierunku prostopadłym do PC1. Kolejne składowe
+kontynuują ten proces. Nie ma tu zmiennej docelowej ani oceny jakości predykcji.
+
+Obsługa w aplikacji:
+
+1. Wczytaj własny CSV lub kliknij **Załaduj przykładowy zbiór**.
+2. Otwórz **Zaawansowana analiza danych → PCA**. Wybierz **Kopię roboczą**
+   (po transformacjach z zakładki czyszczenia) lub **Oryginalne dane (kopia)**.
+3. Wskaż co najmniej dwie cechy numeryczne. Początkowo żadna nie jest wybrana:
+   identyfikator, numer porządkowy czy kod kategorii zwykle nie jest wartościową
+   cechą do PCA, nawet jeśli pandas rozpoznaje go jako liczbę.
+4. Ustaw liczbę składowych, imputację średnią lub medianą oraz standaryzację
+   albo normalizację min–max. Kliknij **Uruchom PCA**.
+5. Odczytaj tabelę wariancji, scree plot (udział każdej składowej), wykres
+   skumulowanej wariancji, tabelę wag i przekształcone dane. Wykres punktowy
+   PC1–PC2 pojawia się tylko dla co najmniej dwóch wyznaczonych składowych.
+
+Przygotowanie i walidacja:
+
+- `src/dimensionality_reduction.py` udostępnia niezależną od Streamlit funkcję
+  `run_pca(df, features, n_components=2, imputation="median", scaling="standard")`.
+  `features` to jawna lista/tuple nazw kolumn; pozostałe parametry są nazwane.
+- Kopia wybranych cech zamienia `±∞` na braki, a następnie dopasowany jest
+  **Pipeline: SimpleImputer → StandardScaler/MinMaxScaler → PCA**.
+  Nie usuwamy obserwacji ani nie modyfikujemy źródłowego DataFrame.
+- `StandardScaler` stosuje odchylenie populacyjne (`ddof=0`), a `MinMaxScaler`
+  skaluje każdą cechę do `[0,1]`. PCA następnie centruje przygotowane cechy.
+  Imputacja i skalowanie są dopasowane na całej wybranej kopii, ponieważ to
+  analiza eksploracyjna. Użycie PCA przed oceną modelu nadzorowanego wymaga
+  ponownego dopasowania **całego pipeline tylko na treningu**.
+- Wymagane są minimum dwie rzeczywiste cechy numeryczne i dwie obserwacje.
+  Liczba składowych musi być całkowita w zakresie `1..min(n_obserwacji, n_cech)`.
+  Kolumny bool, tekstowe i zespolone nie są dopuszczane. Cecha bez żadnej
+  skończonej wartości powoduje komunikat, zamiast automatycznego usunięcia.
+- Stałe cechy pozostają w analizie z ostrzeżeniem i nie wnoszą wariancji.
+  Zerowa całkowita wariancja uniemożliwia PCA. Niewyznaczalne wyniki lub zakresy
+  liczb powodujące przepełnienie są zgłaszane jako `AnalysisError`.
+- Algorytm to `sklearn.decomposition.PCA(svd_solver="full", whiten=False)`:
+  pełny, deterministyczny SVD bez losowania. Zmiana pliku, kopii danych,
+  zastosowanie transformacji, reset lub zmiana parametrów unieważniają wynik;
+  poprzedni wynik nie wraca po ponownym wybraniu dawnych parametrów.
+
+Interpretacja wyników:
+
+- **Wyjaśniona wariancja** to wariancja wyników składowej z dzielnikiem `n−1`.
+  **Udział wyjaśnionej wariancji** dzieli ją przez całkowitą wariancję wszystkich
+  przygotowanych cech. Suma udziałów przy wyborze tylko części składowych może
+  być mniejsza niż 100%; nie przeskalowujemy jej sztucznie do 100%.
+- **Skumulowana wariancja** sumuje udziały od PC1 do danej składowej i pokazuje,
+  jaką część wariancji zachowuje redukcja. Tabela i wykresy w UI pokazują procenty;
+  w wyniku API proporcje są zapisane jako liczby od 0 do 1 (z dokładnością float).
+- **Współczynniki składowych** (`components_`) definiują kierunki osi: wiersz
+  oznacza składową, kolumna cechę po imputacji i skalowaniu. Dla przygotowanej
+  obserwacji `z`: `PCk = suma_j(w[k,j] * (z[j] − średnia_PCA[j]))`.
+  To podpisane wagi wektorów jednostkowych, **nie procenty udziału, korelacje
+  ani miary przyczynowej ważności**. Stała cecha może mieć wagę na osi zerowej
+  wariancji, ale nie wnosi do wyników zmienności.
+- Przekształcone dane (`scores`) mają po jednym wierszu na obserwację i kolumny
+  PC1, PC2, itd.; zachowują indeks wejściowy, również powtórzony.
+
+Ograniczenia: redukcja zwykle powoduje utratę informacji, a duża zachowana
+wariancja nie gwarantuje przydatności dla klasyfikacji, klasteryzacji czy regresji.
+PCA jest liniowe, wrażliwe na odstające, dobór cech, skalowanie oraz sposób
+uzupełniania braków. Znak osi jest umowny: odwrócenie wag i wyników składowej
+nie zmienia wariancji ani geometrii. Przy równych wartościach własnych kierunki
+w odpowiadającej im podprzestrzeni również nie są jednoznaczne. Rząd danych
+po centrowaniu nie przekracza `n_obserwacji−1`; niektóre dopuszczalne składowe
+mogą mieć zerową lub numerycznie znikomą wariancję. Pełny SVD może być kosztowny
+dla bardzo szerokich zbiorów, a wykres dwóch osi nie pokazuje pozostałych wymiarów.
+
+Przykład dla syntetycznych studentów: wybierz `wiek`, `godziny_nauki`,
+`frekwencja`, `wynik_egzaminu`, dwie składowe, medianę i standaryzację.
+PC1 wyjaśnia około **75,04%**, PC2 **22,40%**, razem **97,44%** wariancji;
+tabela wynikowa ma 20 wierszy i dwie kolumny. Te wartości opisują tę konkretną
+kopię i ustawienia. Zmień liczbę składowych na 1, aby zobaczyć brak wykresu 2D,
+lub na 4, aby zachować pełną wariancję (z dokładnością numeryczną).
+
+```python
+from src.data_loader import load_csv
+from src.dimensionality_reduction import run_pca
+
+data = load_csv("data/sample_students.csv")
+result = run_pca(
+    data, ["wiek", "godziny_nauki", "frekwencja", "wynik_egzaminu"],
+    n_components=2, imputation="median", scaling="standard",
+)
+print(result.variance)
+print(result.components)
+print(result.scores.head())
+```
+
+`PCAResult` udostępnia dopasowany `pipeline`, `scores`, `components`, `variance`
+i `constant_features`. Pozwala to w przyszłości wywoływać PCA z modułu LLM,
+porównywać K-Means na cechach pierwotnych i składowych oraz odtworzyć analizę w R.
+Przy nowych obserwacjach należy wybrać te same cechy w tej samej kolejności i
+zamienić nieskończoności na braki przez istniejące `numeric_selection` przed
+`result.pipeline.transform(...)`. Do porównań z R trzeba uzgodnić imputację,
+skalowanie (`ddof=0`), centrowanie, wybielanie, liczbę składowych i tolerancję;
+porównywać wariancję oraz osie z uwzględnieniem umownych znaków i degeneracji.
+Ten etap nie dodaje automatycznego porównania K-Means ani integracji R/LLM.
+
 ### Wywołania poza interfejsem
 
 Funkcje nie zależą od Streamlit i nie modyfikują argumentów. Wyniki modeli
@@ -211,6 +318,7 @@ ai-data-analyst/
 │   ├── analysis_validation.py
 │   ├── data_preparation.py
 │   ├── ml_models.py
+│   ├── dimensionality_reduction.py
 │   ├── advanced_ui.py
 │   └── visualizations.py
 ├── tests/
@@ -220,6 +328,9 @@ ai-data-analyst/
 │   ├── test_data_preparation.py
 │   ├── test_ml_models.py
 │   ├── test_advanced_app.py
+│   ├── test_dimensionality_reduction.py
+│   ├── test_pca_visualizations.py
+│   ├── test_pca_app.py
 │   └── test_app.py
 ├── prompts/
 │   └── README.md
@@ -259,7 +370,19 @@ brak wpływu zmiany części testowej na dopasowane transformatory i model,
 znane klastry, powtarzalność, brakujące cele, puste/stałe cechy, powtórzone indeksy,
 niewyznaczalne metryki, błędne parametry oraz operacje, trening i reset danych w AppTest.
 
-Weryfikacja rozszerzenia (28.10.2026, Python 3.12.14, pandas 2.3.3,
+Weryfikacja etapu PCA (28.10.2026): `python -m pytest -q -W error` —
+**238 zaliczonych testów** (166 dotychczasowych i 72 nowe), zero błędów i testów
+pominiętych. Testy PCA obejmują znane kierunki i wartości własne, zgodność
+projekcji z wagami, wariancję częściową i pełną, imputację, skalowanie, dane
+stałe/puste/nieskończone, błędne parametry, powtarzalność, niezmienność oryginału,
+wartości na wykresach oraz unieważnianie wyników i wariant jednej składowej w AppTest.
+Na syntetycznych cechach `x` i `2*x` PC1 wyjaśnia 100% wariancji (z dokładnością
+numeryczną); na studentach dwie składowe wyjaśniają 97,44%, cztery — 100%.
+Serwer `app.py` zwrócił HTTP 200 dla HTML i `ok` dla `/_stcore/health`, po czym
+został zatrzymany. `pip check` i `git diff --check` zakończyły się poprawnie.
+PCA korzysta z już wymaganej biblioteki scikit-learn; nie dodano zależności.
+
+Weryfikacja etapu Advanced Data Analysis (28.10.2026, Python 3.12.14, pandas 2.3.3,
 NumPy 2.5.4, scikit-learn 1.9.1, Streamlit 1.66.0, Plotly 6.9.0):
 `python -m pytest -q -W error` — **166 zaliczonych testów** (51 poprzednich
 i 115 nowych), bez testów pominiętych. `pip check` nie wykazał konfliktów.
