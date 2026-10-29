@@ -6,6 +6,9 @@ import numpy as np
 import streamlit as st
 
 from src.advanced_ui import render_advanced_analysis
+from src.analysis_validation import AnalysisError
+from src.bike_sharing_data import HOUR_PATH, download_bike_sharing, load_bike_sharing
+from src.bike_sharing_ui import render_bike_study
 from src.data_analysis import column_information, descriptive_statistics, numeric_data, pearson_correlation
 from src.data_loader import DataLoadError, load_csv
 from src.visualizations import VisualizationError, bar_chart, correlation_matrix, histogram, scatter_plot
@@ -24,7 +27,7 @@ st.caption("Projekt akademicki · Techniki Analizy Danych · Bez integracji LLM"
 
 with st.sidebar:
     st.header("Źródło danych")
-    source_type = st.radio("Wybierz źródło", ["Własny CSV", "Dane przykładowe"], key="source_type")
+    source_type = st.radio("Wybierz źródło", ["Własny CSV", "Dane przykładowe", "Bike Sharing (UCI)"], key="source_type")
     uploaded = st.file_uploader("Prześlij plik CSV", type=["csv"], disabled=source_type != "Własny CSV")
     st.button("Załaduj przykładowy zbiór", use_container_width=True, on_click=select_sample)
     with st.expander("Ustawienia odczytu CSV"):
@@ -35,18 +38,34 @@ with st.sidebar:
     st.info("Dane są przetwarzane w pamięci serwera aplikacji. Nie są wysyłane do zewnętrznych usług.")
 
 use_sample = source_type == "Dane przykładowe"
-if uploaded is not None and not use_sample:
+use_bike = source_type == "Bike Sharing (UCI)"
+if uploaded is not None and source_type == "Własny CSV":
     source = uploaded
     source_name = uploaded.name
 elif use_sample:
     source = SAMPLE_PATH
     source_name = "sample_students.csv (dane syntetyczne)"
+elif use_bike:
+    source = HOUR_PATH
+    source_name = "hour.csv — Bike Sharing, UCI 275 (CC BY 4.0)"
+    if not HOUR_PATH.exists():
+        st.info("Brak lokalnego oryginału Bike Sharing. Pobierz go z oficjalnego UCI lub uruchom komendę poniżej.")
+        if st.button("Pobierz oryginalny zbiór Bike Sharing z UCI", key="bike_download"):
+            try:
+                download_bike_sharing()
+                st.rerun()
+            except AnalysisError as exc:
+                st.error(str(exc))
+        st.code("python -m experiments.bike_sharing.run --download", language="bash")
+        st.stop()
 else:
     st.info("Prześlij plik CSV w panelu bocznym lub załaduj przykładowy zbiór studentów.")
     st.stop()
 
 try:
-    if use_sample and source == SAMPLE_PATH:
+    if use_bike:
+        df = load_bike_sharing()
+    elif use_sample and source == SAMPLE_PATH:
         df = load_csv(source)
     else:
         df = load_csv(
@@ -55,7 +74,7 @@ try:
             encoding={"UTF-8": "utf-8-sig", "CP1250": "cp1250", "CP1252": "cp1252"}.get(encoding_label),
             decimal=decimal,
         )
-except DataLoadError as exc:
+except (DataLoadError, AnalysisError) as exc:
     st.error(str(exc))
     st.stop()
 
@@ -69,9 +88,11 @@ cols[3].metric("Brakujące wartości", int(df.isna().sum().sum()))
 sep_name = {",": "przecinek", ";": "średnik", "\t": "tabulator"}[df.attrs["separator"]]
 st.caption(f"Odczyt: {df.attrs['encoding']} · separator: {sep_name}")
 
-preview_tab, stats_tab, charts_tab, advanced_tab = st.tabs([
+tab_names = [
     "Podgląd i jakość danych", "Statystyki", "Wizualizacje", "Zaawansowana analiza danych",
-])
+]
+tabs = st.tabs(tab_names + (["Badanie Bike Sharing"] if use_bike else []))
+preview_tab, stats_tab, charts_tab, advanced_tab = tabs[:4]
 with preview_tab:
     st.subheader("Podgląd danych")
     preview_count = st.slider("Liczba wierszy w podglądzie", 5, 100, 20, 5)
@@ -143,7 +164,11 @@ with charts_tab:
         st.warning(str(exc))
 
 with advanced_tab:
-    render_advanced_analysis(df, source_name)
+    render_advanced_analysis(df, source_name, enable_regression=not use_bike)
+
+if use_bike:
+    with tabs[4]:
+        render_bike_study(df)
 
 if numeric_data(df).shape[1] and np.isinf(df.select_dtypes(include="number")).any().any():
     st.warning("Wykryto wartości nieskończone. Są pomijane w statystykach i wykresach; tabela braków opisuje oryginalne dane.")
